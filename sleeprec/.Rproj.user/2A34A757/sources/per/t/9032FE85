@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1549444975326.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1803948447",
+    "id" : "9032FE85",
+    "lastKnownWriteTime" : 1549444925,
+    "last_content_update" : 1549444925,
+    "path" : "~/INSIDE-DEM/X20170810-SleepRecognitionPSG-SL/Code/012-Rpackage/sleeprec/R/calculate_features.R",
+    "project_path" : "R/calculate_features.R",
+    "properties" : {
+    },
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

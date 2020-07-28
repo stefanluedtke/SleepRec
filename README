@@ -1,0 +1,8 @@
+This R package provides some algorithms for actigraphic sleep recognition. Specifically, you can either apply pre-trained algorithms (that were trained by supervised training, using data from 20 patients for which PSG scorings are available) or train and evaluate the algorithms with your own data, using k-fold or leave-one-patient-out cross validation. 
+
+To install the package, just do the following (in R, assuming that the package .tar.gz file is in current working directory):
+
+install.packages(c('dplyr', 'ggplot2', 'signal', 'entropy', 'e1071', 'data.table', 'fasttime', 'plyr', 'reshape2', 'MASS', 'mhsmm', 'mvtnorm'))
+install.packages("sleeprec_0.1.0.tar.gz", repos = NULL, type="source")
+
+In R load the package with library(sleeprec) and run vignette("sleeprec-tutorial") to get a manual of this package.

@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1595849392674.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3866000172",
+    "id" : "59B0B8D5",
+    "lastKnownWriteTime" : 1595855541,
+    "last_content_update" : 1595855541438,
+    "path" : "~/INSIDE-DEM/X20170810-SleepRecognitionPSG-SL/Code/014-Rpackage-to-publish/sleeprec/vignettes/sleeprec-tutorial.Rmd",
+    "project_path" : "vignettes/sleeprec-tutorial.Rmd",
+    "properties" : {
+        "cursorPosition" : "82,176",
+        "scrollLine" : "64"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 6,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

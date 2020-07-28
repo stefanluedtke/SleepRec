@@ -1,0 +1,144 @@
+---
+title: "Using the SleepRec package"
+author: "Stefan Lüdtke"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+The purpose of this package is to perform the sleep recognition evaluation that has been published in:
+
+Stefan Lüdtke, Albert Hein, Frank Krüger, Sebastian Bader, and Thomas Kirste. 2017. Actigraphic Sleep Detection for Real-World Data of Healthy Young Adults and People with Alzheimer’s Disease. In Proceedings of BIOSIGNALS 2017. DOI: 10.5220/0006158801850192
+
+Overall, the following steps are supported:
+
+* Feature extraction (including integration of sleep annotations)
+* Training and Prediction, using the classifiers described in the paper
+* Evaluation of classifiers, using leave-one-person-out cross validation and k-fold cross validation
+* Applying pre-trained classifiers
+
+## Required Data
+This package assumes that the data is present in a specific format:
+
+* Grey sensor data: Raw data extracted from the grey bracelet. We always use the csv export files. Examples are provided in addition to this package: `grey.raw.patient1.csv` and `grey.raw.patient2.csv`.
+* Annotations: We obtained a sleep scoring, according to the AASM scoring manual, from a sleep clinic. The sleep scoring is provided 30s intervals, and distinguishes between the sleep stages Awake, Arousal, Movement, N1, N2, N3, REM. Examples: `psg.annotations.patient1.csv` and `psg.annotations.patient2.csv`.
+* Event markers: We need some way to synchronize the annotations and the grey sensor data (both data sets use different clocks). In our study, this is done by pressing the grey bracelet event button, and the event button of the Polysomnography (PSG) device (that uses the same clock than the annotations) simultaneously. This gives us the offset of both clocks (after that, we assume that both clocks run with the same speed). Examples of the PSG event marker file: `psg.events.patient1.csv` and `psg.events.patient2.csv`.
+
+
+## Data Preprocessing and Feature Extraction
+
+The following things are done in this step:
+
+1. Get the raw grey data in a nice format: Resample all channels with 100 Hz, such that the data can be seen as a table (with columns time, accX, accY, accZ, gyroX, gyroY, gyroZ, hr0, hr1).
+2. Synchronize with PSG annotations via event markers
+3. Compute features in non-overlapping windows.
+
+All of these steps are done with the function `generateFeatures`. The following example shows how this function is used (using a window size of 60s):
+
+```{r,eval=FALSE}
+library(data.table)
+library(sleeprec)
+greydata = fread("../../sleeprec-data/grey.raw.patient1.csv",stringsAsFactors = F)
+psgevents = fread("../../sleeprec-data/psg.events.patient1.csv",stringsAsFactors = F)
+psgannotations = readPSG("../../sleeprec-data/psg.annotations.patient1.csv",greydata)
+features = generateFeatures(greydata,psgevents,psgannotations,wsize=60)
+
+```
+The function requires the input data to be exactly in the same format as the provided samples. 
+The output of the function is a data frame with 41 columns. The number of rows is equal to the number of windows (depends on the length of the data files, and the chosen window size):
+
+* The UNIX timestamp for the beginning of the window
+* 39 features: statistical feature and domain-specific features. They are described in more detail in the paper.
+* The ground truth (=annotation) for the window. We implicitly assume that there is only a single, consistent annotation for the complete duration of the window. If this is not the case in the data, the first annotation is chosen
+
+Examples for the output of the feature calculation functions are provided in `features.patient1.csv` and `features.patient2.csv`. 
+Such feature data frames are the input for all following steps. 
+
+## Classification
+
+Feature data frames can either be created as described above, or they can be read from csv files, by using `readFeatures`:
+
+```{r,eval=FALSE}
+library(sleeprec)
+fns = c("../../sleeprec-data/features.patient1.csv","../../sleeprec-data/features.patient2.csv")
+names = c("patient1","patient2")
+features = readFeatures(fns,names)
+```
+This will combine multiple feature files, and add a new column indicating the patient. 
+Such a data frame is the input for the classification / evaluation functions. 
+
+The function `doClassification` trains the models and performs classification in a leave-one-person-out cross validation. That is, the model is trained on all data except patient i, that trained model is then used for classifying the data of patient i, and this is done for each i. 
+The ouptut of this function is for each subject, each window and each feature (all classifiers take univariate features), the classification of that window by each classifier. 
+The class is either 0 (awake) or 1 (sleeping). 
+
+```{r,eval=FALSE}
+library(sleeprec)
+fns = c("../../sleeprec-data/features.patient1.csv","../../sleeprec-data/features.patient2.csv")
+names = c("patient1","patient2")
+features = readFeatures(fns,names)
+classification = doClassification(features)
+```
+
+There is also a function (`doCV`) that does not return the actual classification, but an evaluation of the classification (in terms of accuracy, sensitivity, specificity, youden-index).
+
+```{r,eval=FALSE}
+library(sleeprec)
+fns = c("../../sleeprec-data/features.patient1.csv","../../sleeprec-data/features.patient2.csv")
+names = c("patient1","patient2")
+features = readFeatures(fns,names)
+result = doCV(features)
+```
+
+This function returns for each feature, each algorithm and each performance measure the value of that measure. 
+
+## Applying Pre-trained Classifiers
+
+The package also contains pre-trained versions of all classifiers (specifically, each combination of feature and classification algorithm, trained on the complete dataset consisting of 20 subjects). The classifiers are 
+stored in `sleeprec-data/algorithms.rds`. They can be loaded and used to classify new data as follows:
+
+```{r,eval=FALSE}
+library(sleeprec)
+models = readRDS("sleeprec-data/algorithms.rds")
+feature = "amean_f"
+alg = "hmm"
+
+pretrainedClassification = applyPretrained(models,alg,feature,features)
+```
+
+
+## Plotting
+
+The package contains some convenience functions for plotting the results. 
+First, we can plot the classification over time, for a single subject. This is useful to get an intuition on how the data and the classifier output looks like. It is not very useful for quantitative statements (mostly because the function performs training on test data).
+
+```{r, fig.show='hold',fig.height=7,fig.width=7,message=FALSE,eval=FALSE}
+options(warn=-1)
+library(sleeprec)
+fns = c("sleeprec-data/features.patient1.csv","sleeprec-data/features.patient2.csv")
+names = c("patient1","patient2")
+features = readFeatures(fns,names)
+plotExampleFit(features)
+```
+
+Furthermore, we can plot the evaluation results from `doCV`. 
+
+```{r, fig.show='hold',fig.height=8,fig.width=7,message=FALSE,eval=FALSE}
+options(warn=-1)
+library(sleeprec)
+fns = c("sleeprec-data/features.patient1.csv","sleeprec-data/features.patient2.csv")
+names = c("patient1","patient2")
+features = readFeatures(fns,names)
+result = doCV(features)
+plotCvResults(result)
+```
+

@@ -1,0 +1,38 @@
+library(sleeprec)
+library(data.table)
+
+#show the documentation for the package
+vignette("sleeprec-tutorial")
+
+#load sample data
+greydata = fread("sleeprec-data/grey.raw.patient1.csv",stringsAsFactors = F)
+psgevents = fread("sleeprec-data/psg.events.patient1.csv",stringsAsFactors = F)
+psgannotations = readPSG("sleeprec-data/psg.annotations.patient1.csv",greydata)
+
+#feature extraction: takes some time...
+features = generateFeatures(greydata,psgevents,psgannotations,wsize=60)
+
+#We can also load some pre-computed feature file if we do not want to wait so long
+fns = c("sleeprec-data/features.patient1.csv","sleeprec-data/features.patient2.csv")
+names = c("patient1","patient2")
+features = readFeatures(fns,names)
+
+#do the classification (either getting the actual classification back, or the cross validation result)
+classification = doClassification(features)
+result = doCV(features)
+
+
+#we can also use a pre-trained algorithm for classification. For this, we need to specify
+#the algorithm (c("logreg","sadeh","lda","cole","hmm")) and feature (see colnames(features))
+#for example:
+models = readRDS("sleeprec-data/algorithms.rds")
+feature = "amean_f"
+alg = "hmm"
+
+pretrainedClassification = applyPretrained(models,alg,feature,features)
+
+
+
+#plot the results
+plotExampleFit(features)
+plotCvResults(result)

@@ -1,0 +1,249 @@
+tfeature=function(wsize,time,signal,method){
+  k=1
+  feature=1
+  currindex=1
+
+  for(i in seq(time[1],time[length(time)],wsize)){
+    intervalstart=i
+    while(T){
+      if(time[currindex]>=intervalstart){
+        startindex=currindex
+        break
+      }else{
+        currindex=currindex+1
+      }
+    }
+    intervalend=i+wsize
+    while(T){
+      if(currindex>length(time)){
+        endindex=length(time)
+        break
+      }
+      if(time[currindex]>=intervalend){
+        endindex=currindex-1
+        break
+      }else{
+        currindex=currindex+1
+      }
+    }
+    feature[k]=method(signal[startindex:endindex])
+    k=k+1
+    intervalstart=intervalend+1
+  }
+  ret=feature
+}
+
+
+
+tfeature2=function(wsize,time,signal,method){
+  k=1
+  feature=1
+  currindex=1
+  for(i in seq(time[1],time[length(time)],wsize)){
+    intervalstart=i
+    while(T){
+      if(time[currindex]>=intervalstart){
+        startindex=currindex
+        break
+      }else{
+        currindex=currindex+1
+      }
+    }
+    intervalend=i+wsize
+    while(T){
+      if(currindex>length(time)){
+        endindex=length(time)
+        break
+      }
+      if(time[currindex]>=intervalend){
+        endindex=currindex-1
+        break
+      }else{
+        currindex=currindex+1
+      }
+    }
+    feature[k]=method(signal[startindex:endindex,])
+    k=k+1
+    intervalstart=intervalend+1
+  }
+  ret=feature
+}
+
+getFeatures=function(temp,accel,gyro,wsize = 60, ignoretemp = F){
+  WSIZE=wsize#seconds
+  accelmag=sqrt(accel$ALGO_DATA_ACCELEROMETER_WRIST_X^2+accel$ALGO_DATA_ACCELEROMETER_WRIST_Y^2+accel$ALGO_DATA_ACCELEROMETER_WRIST_Z^2)
+  fi=butter(2,c(0.5/50,11/50),plane="z",type="pass")
+
+  accelmagbp=as.numeric(filter(x=accelmag,filt=fi,method="c"))
+
+  gyromag=sqrt(gyro$ALGO_DATA_GYRO_WRIST_X^2+gyro$ALGO_DATA_GYRO_WRIST_Y^2+gyro$ALGO_DATA_GYRO_WRIST_Z^2)
+  gyromagbp=gyromag
+  gyromagbp[!is.na(gyromag)]=as.numeric(filter(x=gyromag[!is.na(gyromag)],filt=fi,method="c"))
+
+
+  time_f=tfeature(WSIZE,accel$DateTime,accel$DateTime,min)
+
+  tempskin_norm=scale(temp$ALGO_DATA_TEMPERATURE_WRIST_SKIN)
+  tempskin_f=tfeature(WSIZE,temp$DateTime,tempskin_norm,mean)
+  tempref_norm=scale(temp$ALGO_DATA_TEMPERATURE_WRIST_REFERENCE)
+  tempref_f=tfeature(WSIZE,temp$DateTime,tempref_norm,mean)
+
+  #-------------accel-----------------------
+
+  amean_f=tfeature(WSIZE,accel$DateTime,abs(accelmagbp),mean)
+  avar_f=tfeature(WSIZE,accel$DateTime,accelmagbp,var)
+  aq10_f=tfeature(WSIZE,accel$DateTime,abs(accelmagbp),function(sig){quantile(sig,0.1)})
+  aq25_f=tfeature(WSIZE,accel$DateTime,abs(accelmagbp),function(sig){quantile(sig,0.25)})
+  aq50_f=tfeature(WSIZE,accel$DateTime,abs(accelmagbp),function(sig){quantile(sig,0.5)})
+  aq75_f=tfeature(WSIZE,accel$DateTime,abs(accelmagbp),function(sig){quantile(sig,0.75)})
+  aq90_f=tfeature(WSIZE,accel$DateTime,abs(accelmagbp),function(sig){quantile(sig,0.9)})
+  if(length(amean_f)<length(c(1,2,4,8,16,8,4,2,1))){
+    amsmooth_f=rep(0,length(amean_f))
+  }else{
+    amsmooth_f=as.numeric(stats::filter(x=amean_f,filt=(c(1,2,4,8,16,8,4,2,1)/46),method="c"))
+  }
+
+
+  thresh=0.01
+  nrmovements_f=tfeature(WSIZE,accel$DateTime,abs(accelmagbp),function(sig){mean(sig>(thresh))})#wie oft bewegung groesser schwellwert aufgetreten?
+  if(length(nrmovements_f)<length(c(1,2,4,8,16,8,4,2,1))){
+    nrsmooth_f=rep(0,length(nrmovements_f))
+  }else{
+    nrsmooth_f=as.numeric(stats::filter(x=nrmovements_f,filt=(c(1,2,4,8,16,8,4,2,1)/46),method="c"))
+  }
+  countTC=function(datraw){
+    dat=datraw[!is.na(datraw)]
+    crossings=sapply(2:length(dat),function(i){
+      if((dat[i-1]<thresh)&(dat[i]>thresh)){
+        ret=1
+      }else{
+        ret=0
+      }
+    })
+    ret=mean(crossings)
+  }
+
+  tc_f=tfeature(WSIZE,accel$DateTime,abs(accelmagbp),countTC)
+  if(length(tc_f)<length(c(1,2,4,8,16,8,4,2,1))){
+    tcsmooth_f=rep(0,length(tc_f))
+  }else{
+    tcsmooth_f=as.numeric(stats::filter(x=tc_f,filt=(c(1,2,4,8,16,8,4,2,1)/46),method="c"))
+  }
+
+  meanfreq=function(sigraw){
+    sig=sigraw[!is.na(sigraw)]
+    ff=abs(fft(sig))[1:floor(length(sig)/2)]
+    freq=seq(0,0.5,length.out=length(ff))
+    mf=sum(ff*freq)/sum(ff)
+  }
+  meanfreq_f=tfeature(WSIZE,accel$DateTime,accelmag,meanfreq)
+
+  entropy_f=tfeature(WSIZE,accel$DateTime,accelmag,function(sig){entropy.empirical(sig)})
+
+  energy_f=tfeature(WSIZE,accel$DateTime,accelmagbp,function(sig){sum(sig^2)})
+
+  askew_f=tfeature(WSIZE,accel$DateTime,accelmagbp,skewness)
+  akurt_f=tfeature(WSIZE,accel$DateTime,accelmagbp,kurtosis)
+
+
+  #------------gyro-------------------------
+
+  gmean_f=tfeature(WSIZE,gyro$DateTime,abs(gyromagbp),mean)
+  gvar_f=tfeature(WSIZE,gyro$DateTime,gyromagbp,var)
+  gq10_f=tfeature(WSIZE,gyro$DateTime,abs(gyromagbp),function(sig){quantile(sig,0.1)})
+  gq25_f=tfeature(WSIZE,gyro$DateTime,abs(gyromagbp),function(sig){quantile(sig,0.25)})
+  gq50_f=tfeature(WSIZE,gyro$DateTime,abs(gyromagbp),function(sig){quantile(sig,0.5)})
+  gq75_f=tfeature(WSIZE,gyro$DateTime,abs(gyromagbp),function(sig){quantile(sig,0.75)})
+  gq90_f=tfeature(WSIZE,gyro$DateTime,abs(gyromagbp),function(sig){quantile(sig,0.9)})
+  if(length(gmean_f)<length(c(1,2,4,8,16,8,4,2,1))){
+    gmsmooth_f=rep(0,length(gmean_f))
+  }else{
+    gmsmooth_f=as.numeric(stats::filter(x=gmean_f,filt=(c(1,2,4,8,16,8,4,2,1)/46),method="c"))
+  }
+  thresh=1.8
+  gtc_f=tfeature(WSIZE,gyro$DateTime,abs(gyromagbp),countTC)
+  if(length(gtc_f)<length(c(1,2,4,8,16,8,4,2,1))){
+    gtcsmooth_f=rep(0,length(gtc_f))
+  }else{
+    gtcsmooth_f=as.numeric(stats::filter(x=gtc_f,filt=(c(1,2,4,8,16,8,4,2,1)/46),method="c"))
+  }
+  gnrmovements_f=tfeature(WSIZE,gyro$DateTime,abs(gyromagbp),function(sig){mean(sig>(thresh))})
+  if(length(gnrmovements_f)<length(c(1,2,4,8,16,8,4,2,1))){
+    gnrsmooth_f=rep(0,length(gnrmovements_f))
+  }else{
+    gnrsmooth_f=as.numeric(stats::filter(x=gnrmovements_f,filt=(c(1,2,4,8,16,8,4,2,1)/46),method="c"))
+  }
+  gmeanfreq_f=tfeature(WSIZE,gyro$DateTime,gyromag,meanfreq)
+
+  gentropy_f=tfeature(WSIZE,gyro$DateTime,gyromag,function(sig){entropy.empirical(sig)})
+
+  genergy_f=tfeature(WSIZE,gyro$DateTime,gyromagbp,function(sig){sum(sig^2)})
+
+  gskew_f=tfeature(WSIZE,gyro$DateTime,gyromagbp,skewness)
+  gkurt_f=tfeature(WSIZE,gyro$DateTime,gyromagbp,kurtosis)
+
+  #-----------------sonstige-----------------------------
+
+  islying=1:length(accel$DateTime)
+  islying[accel$ALGO_DATA_ACCELEROMETER_WRIST_Y<(-0.5)]=0
+  islying[accel$ALGO_DATA_ACCELEROMETER_WRIST_Y>=(-0.5)]=1
+  islying_f=tfeature(WSIZE,accel$DateTime,islying,function(sig){as.numeric(names(which.max(table(sig)))) })
+
+  movements=accel$ALGO_DATA_ACCELEROMETER_WRIST_X
+  fi=butter(2,c(0.5/50,40/50),plane="z",type="pass")
+  isTurningF=as.numeric(filter(x=movements,filt=fi,method="c"))
+  isTurningF=abs(isTurningF)
+  isTurningF[isTurningF<0.3]=0
+  isTurningF[isTurningF>=0.3]=1
+
+  binaryFilter <- function(x, threshold=3) {
+    r <- rle(x)
+    isBelowThreshold <- r$lengths < threshold&(r$values==0)
+    r$values[isBelowThreshold] <- abs(1-r$values[isBelowThreshold])
+    return(inverse.rle(r))
+  }
+  isTurningF2=binaryFilter(isTurningF,100)
+
+
+  nrturns_f=tfeature(WSIZE,accel$DateTime,isTurningF,function(sig){
+    ret=sum(sig==1&(c(0,sig[1:length(sig)-1]))==0,na.rm=T)
+  })
+
+
+  berechneWinkel=function(sig){
+    bereinigt=sig
+    erstes=bereinigt[1,]
+    letztes=bereinigt[length(bereinigt),]
+    v1=c(erstes$ALGO_DATA_ACCELEROMETER_WRIST_X,erstes$ALGO_DATA_ACCELEROMETER_WRIST_Y,erstes$ALGO_DATA_ACCELEROMETER_WRIST_Z)
+    v2=c(letztes$ALGO_DATA_ACCELEROMETER_WRIST_X,letztes$ALGO_DATA_ACCELEROMETER_WRIST_Y,letztes$ALGO_DATA_ACCELEROMETER_WRIST_Z)
+    winkel=(v1 %*% v2)/(sqrt(sum(v1^2))*sqrt(sum(v2^2)))
+    erg=acos(winkel)
+  }
+
+  bh_f=tfeature2(WSIZE,accel$DateTime,accel,berechneWinkel)
+
+
+  if(ignoretemp) {
+    ret=data.frame(time_f,aq10_f,aq25_f,aq50_f,aq75_f,aq90_f,gq10_f,gq25_f,gq50_f,gq75_f,gq90_f, amean_f,avar_f,askew_f,akurt_f,gmean_f,gvar_f,gskew_f,gkurt_f,islying_f,energy_f,genergy_f,entropy_f,gentropy_f,amsmooth_f,gmsmooth_f,nrmovements_f,nrsmooth_f,gnrmovements_f,gnrsmooth_f,tc_f,tcsmooth_f,gtc_f,gtcsmooth_f,meanfreq_f,gmeanfreq_f,nrturns_f,bh_f)
+  } else {
+    ret=data.frame(time_f,aq10_f,aq25_f,aq50_f,aq75_f,aq90_f,gq10_f,gq25_f,gq50_f,gq75_f,gq90_f,tempskin_f,tempref_f,amean_f,avar_f,askew_f,akurt_f,gmean_f,gvar_f,gskew_f,gkurt_f,islying_f,energy_f,genergy_f,entropy_f,gentropy_f,amsmooth_f,gmsmooth_f,nrmovements_f,nrsmooth_f,gnrmovements_f,gnrsmooth_f,tc_f,tcsmooth_f,gtc_f,gtcsmooth_f,meanfreq_f,gmeanfreq_f,nrturns_f,bh_f)
+  }
+}
+
+
+tfeaturefc=function(wsize,time,signal,method){
+  firstCross=quantstrat:::.firstCross
+  k=1
+  feature=1
+  currindex=1
+  for(i in seq(time[1],time[length(time)],wsize)){
+    intervalstart=i
+    startindex=firstCross(time,intervalstart,">=")
+    intervalend=i+wsize
+    endindex=firstCross(time,intervalend,">=")
+    feature[k]=method(signal[startindex:endindex])
+    k=k+1
+    intervalstart=intervalend+1
+  }
+  ret=feature
+}

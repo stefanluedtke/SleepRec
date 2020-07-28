@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1595849341022.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1840846485",
+    "id" : "152EB411",
+    "lastKnownWriteTime" : 1595855879,
+    "last_content_update" : 1595855879,
+    "path" : "~/INSIDE-DEM/X20170810-SleepRecognitionPSG-SL/Code/014-Rpackage-to-publish/sleeprec/R/apply_pretrained.R",
+    "project_path" : "R/apply_pretrained.R",
+    "properties" : {
+        "cursorPosition" : "17,27",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

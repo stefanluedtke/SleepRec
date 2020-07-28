@@ -1,0 +1,23 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1549445412167.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1879131544",
+    "id" : "26D8DD63",
+    "lastKnownWriteTime" : 1551087616,
+    "last_content_update" : 1551087616,
+    "path" : "~/INSIDE-DEM/X20170810-SleepRecognitionPSG-SL/Code/012-Rpackage/tests.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "12,19",
+        "scrollLine" : "0",
+        "tempName" : "Untitled1"
+    },
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

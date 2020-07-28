@@ -1,0 +1,574 @@
+
+listToDf=function(list){
+  out=list[[1]]
+  if(length(list)>=2){
+    for(i in 2:length(list)){
+      out=rbind(out,list[[i]])
+    }
+  }
+  ret=out
+}
+
+removeNAs = function(df, indices){
+  for(i in 1:length(indices)){
+    df = df[!is.na(df[,indices[i]]),]
+  }
+  ret = df
+}
+
+resampling=function(xtrain,ytrain){
+  #Resampling
+  wach=data.frame(V1=xtrain[ytrain==0,])
+  schlaf=data.frame(V1=xtrain[ytrain==1,])
+  timesresampling=round(nrow(wach)/nrow(schlaf))
+
+  repdf=function(df,t){
+    out=df
+    if(t>=2){
+      for(i in 2:t){
+        out=rbind(out,df)
+      }
+    }
+    out=out
+  }
+  schlafre=repdf(schlaf,timesresampling)
+
+  xtrainre=rbind(wach,schlafre)
+  ytrainre=c(rep(0,nrow(wach)),rep(1,nrow(schlafre)))
+
+  ret=list(xtrainre,ytrainre)
+}
+
+ldaCV=function(xtrain,ytrain,xval,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=data.frame(b[[1]])
+    xval=data.frame(b[[2]])
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+
+  re=resampling(xtrain,ytrain)
+  xtrain=re[[1]]
+  ytrain=re[[2]]
+
+  model=lda(ytrain~.,data=data.frame(data.frame(xtrain)))
+  yval=predict(model,data.frame(V1=xval),type="response")
+  p=as.numeric(levels(yval$class))[yval$class]
+  ret=p
+}
+
+hmmCV=function(xtrain,ytrain,xval,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+  }
+  supervisedHMMmult=function(features,label){
+    require(mhsmm)
+    J <- 2
+    initial <- rep(1/J, J)
+
+    mu=list()
+    sigma=list()
+    for(i in c(1,0)){
+      m=c()
+      V=diag(ncol(features))
+      for(j in 1:ncol(features)){
+        f=features[,j][label==i]
+        m=c(m,mean(f))
+        V[j,j]=var(f)
+      }
+      mu[[length(mu)+1]] <- m
+      sigma[[length(sigma)+1]] <- V
+    }
+
+    sigma=list()
+    for(i in c(1,0)){
+      V=cov(features[label==i,])
+      sigma[[length(sigma)+1]] <- V
+    }
+
+
+    b <- list(mu = mu, sigma = sigma)
+
+    changes1=sapply(which(label==1),function(i){
+      ret=(label[i+1]==0)
+    })
+    relC1=sum(changes1,na.rm=T)/sum(label==1)
+
+    changes0=sapply(which(label==0),function(i){
+      ret=(label[i+1]==1)
+    })
+    relC0=sum(changes1,na.rm=T)/sum(label==0)
+
+    P <- matrix(c(1-relC1, relC0,relC1, 1-relC0), nrow = 2)
+
+    model <- hmmspec(init = initial, trans = P, parms.emis = b,dens.emis = dmvnorm.hsmm)
+
+  }
+
+
+  supervisedHMMuni=function(features,label){
+    require(mhsmm)
+    J <- 2
+    initial <- rep(1/J, J)
+
+    b <- list(mu = c(mean(features[label==1,1]),mean(features[label==0,1])), sigma =c(var(features[label==1,1]),var(features[label==0,1])))
+    changes1=sapply(which(label==1),function(i){
+      ret=(label[i+1]==0)
+    })
+    relC1=sum(changes1,na.rm=T)/sum(label==1)
+
+    changes0=sapply(which(label==0),function(i){
+      ret=(label[i+1]==1)
+    })
+    relC0=sum(changes1,na.rm=T)/sum(label==0)
+
+    P <- matrix(c(1-relC1, relC0,relC1, 1-relC0), nrow = 2)
+
+    model <- hmmspec(init = initial, trans = P, parms.emis = b,dens.emis = dnorm.hsmm)
+
+  }
+  xtrainj=data.frame(apply(xtrain,2,jitter))
+  xtrainj=abs(xtrainj)
+
+
+  #--------------------------log norm
+  xvalj=data.frame(apply(xval,2,jitter))
+  xvalj=abs(xvalj)
+
+  xtrainj=log(xtrainj)
+  xvalj=log(xvalj)
+  #--------------------------
+
+
+  if(ncol(xtrainj)==1){
+    model=supervisedHMMuni(xtrainj,ytrain)
+    traindata=list(x=xvalj[,1],N=length(xvalj[,1]))
+  }else{
+    model=supervisedHMMmult(xtrainj,ytrain)
+    traindata=list(x=xvalj,N=length(xvalj[,1]))
+  }
+
+  yfit=predict(model,traindata)
+
+
+  p=(yfit$s-2)*(-1)
+
+}
+
+coleCV=function(xtrain,ytrain,xval,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+  getFeatureMatrix = function(dat,BEFORE,AFTER){
+    gesmat=matrix(nrow=length(dat[,1]))
+    for(j in 1:length(dat)){
+      el=dat[,j]
+      featmat=matrix(nrow=length(el),ncol=(BEFORE+AFTER+1))
+      for(i in (BEFORE+1):(length(el)-(AFTER+1))){
+        featmat[i,]=el[(i-BEFORE):(i+AFTER)]
+      }
+      gesmat=cbind(gesmat,featmat)
+    }
+
+    return(data.frame(gesmat[,-1]))
+  }
+
+  xtrainm=getFeatureMatrix(xtrain,4,2)
+  xvalm=getFeatureMatrix(xval,4,2)
+  re=resampling(xtrainm,ytrain)
+  xtrainm=re[[1]]
+  ytrain=re[[2]]
+  model=lm(ytrain~.,xtrainm)
+
+  yfit=predict(model,data.frame(V1=xvalm))
+  p=yfit
+  p[yfit>=0.5]=1
+  p[yfit<0.5]=0
+  p=p
+}
+
+logregCV=function(xtrain,ytrain,xval,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+  re=resampling(xtrain,ytrain)
+  xtrain=re[[1]]
+  ytrain=re[[2]]
+
+  model=glm(ytrain~.,data=xtrain,family="binomial")
+
+  yval=predict(model,data.frame(V1=xval),type="response")
+  p=yval
+  p[yval>=0.5]=1
+  p[yval<0.5]=0
+  ret=p
+}
+
+svmCV=function(xtrain,ytrain,xval,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+  re=resampling(xtrain,ytrain)
+  xtrain=re[[1]]
+  ytrain=re[[2]]
+
+  require(e1071)
+  label=factor(ytrain)
+
+  model=svm(label~.,data=xtrain)
+  yfit=predict(model,data.frame(V1=xval))
+  p=as.numeric(levels(yfit))[yfit]
+
+}
+
+
+kfoldcv=function(method,data,y,k=10){
+  acc=1:k
+  sens=1:k
+  spez=1:k
+
+  #make equally spaced folds
+  len = nrow(data)
+  lf = floor(len/k)
+  llast = len-((k-1)*lf)
+  foldindex = c(do.call("c",lapply(1:(k-1),function(i) replicate(lf,i))),replicate(llast,k))
+
+  #this would create random folds...
+  #foldindex = sample(1:k,len,replace = TRUE,prob = replicate(k,1/k))
+
+  for(i in 1:k){
+    traindata=data.frame(V1=data[foldindex!=i,])
+    trainlabel = y[foldindex!=i]
+    testdata = data.frame(V1=data[foldindex==i,])
+    yval = y[foldindex==i]
+    p=method(traindata,trainlabel,testdata)
+
+    spez[i]=length(yval[yval==0&p==0&!(is.na(p))])/length(yval[yval==0&!(is.na(p))])
+    sens[i]=length(yval[yval==1&p==1&!(is.na(p))])/length(yval[yval==1&!(is.na(p))])
+    acc[i]=length(yval[yval==p&!(is.na(p))])/length(yval[!(is.na(p))])
+  }
+
+  se=mean(sens,na.rm=T)
+  sp=mean(spez,na.rm=T)
+
+  youden=sp+se-1
+  ret=c(mean(acc,na.rm=T),se,sp,se+sp-1,exp(mean(log(c(se,sp)))))
+
+}
+
+lopocv=function(method,datafolds,yfolds,plot){
+  if(length(datafolds)!=length(yfolds)){
+    stop("datafolds und yfolds must have same size...")
+  }
+  acc=1:length(datafolds)
+  sens=1:length(datafolds)
+  spez=1:length(datafolds)
+  for(i in 1:length(datafolds)){
+
+    train=listToDf(datafolds[-i])
+    ytrain=unlist(yfolds[-i])
+    val=datafolds[[i]]
+    yval=yfolds[[i]]
+
+    p=method(train,ytrain,val)
+
+    spez[i]=length(yval[yval==0&p==0&!(is.na(p))])/length(yval[yval==0&!(is.na(p))])
+    sens[i]=length(yval[yval==1&p==1&!(is.na(p))])/length(yval[yval==1&!(is.na(p))])
+    acc[i]=length(yval[yval==p&!(is.na(p))])/length(yval[!(is.na(p))])
+
+    if(plot){
+      if(ncol(val)==1){
+        plot(val$V1,type="l")
+      }else{
+        plot(val[,1],type="l")
+      }
+
+      lines(yval*500,col="green")
+      lines(p*500,col="red")
+
+      print(acc[i])
+
+      readline(prompt="Enter to continue...")
+    }
+  }
+  se=mean(sens,na.rm=T)
+  sp=mean(spez,na.rm=T)
+  youden=sp+se-1
+  ret=c(mean(acc,na.rm=T),se,sp,se+sp-1,exp(mean(log(c(se,sp)))))
+}
+
+sadehCV=function(xtrain,ytrain,xval,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+  xtosadeh=function(xtrain){
+    sadeh2_f=rep(0,length(xtrain))
+    sadeh2_f[6:length(xtrain)]=sapply(6:length(xtrain),function(i){
+      ret=sd(xtrain[(i-5):(i-1)])
+    })
+    sadeh3_f=rep(0,length(xtrain))
+    sadeh3_f[1:(length(xtrain)-9)]=sapply(1:(length(xtrain)-9),function(i){
+      ret=sd(xtrain[(i+1):(i+9)])
+    })
+    sadeh4_f=rep(0,length(xtrain))
+    sadeh4_f[1:(length(xtrain)-2)]=sapply(1:(length(xtrain)-2),function(i){
+      ret=min(xtrain[(i+1):(i+2)])
+    })
+    sadeh5_f=rep(0,length(xtrain))
+    sadeh5_f[3:(length(xtrain))]=sapply(3:(length(xtrain)),function(i){
+      ret=sd(xtrain[(i-2):(i-1)])
+    })
+    features=data.frame(xtrain,sadeh2_f,sadeh3_f,sadeh4_f,sadeh5_f)
+  }
+  xt=xtrain[,1]
+  xv=xval[,1]
+  xtf=xtosadeh(xt)
+  xvf=xtosadeh(xv)
+  if(ncol(xtrain)>1){
+    for(i in 2:ncol(xtrain)){
+      xt=xtrain[,i]
+      xv=xval[,i]
+      xtf=cbind(xtf,xtosadeh(xt))
+      xvf=cbind(xvf,xtosadeh(xv))
+    }
+  }
+  re=resampling(xtf,ytrain)
+  xtf=re[[1]]
+  ytrain=re[[2]]
+
+  model=lm(ytrain~.,data.frame(xtf))
+
+  yfit=predict(model,data.frame(V1=xvf))
+  p=yfit
+  p[yfit>=0.5]=1
+  p[yfit<0.5]=0
+  ret=p
+
+}
+
+getTrain=function(features,indices,patients){
+  train=list()
+  label=list()
+  for(i in 1:length(patients)){
+    patient=patients[i]
+    train[[i]]=data.frame(V1=features[features$PATIENT==patient,indices])
+    train[[i]]=data.frame(V1=train[[i]][!is.na(train[[i]]$V1),])
+  }
+  train=train[sapply(train,nrow)!=0]
+  ret=train
+}
+
+getTrainm=function(features,indices,ignoreNA = FALSE,patients){
+  train=list()
+  label=list()
+  for(i in 1:length(patients)){
+    patient=patients[i]
+    train[[i]]=data.frame(features[features$PATIENT==patient,indices])
+    if(!ignoreNA) {
+      train[[i]]=data.frame(train[[i]][-1*(unlist(sapply(train[[i]],function(x){which(is.na(x))}))),])
+    }
+  }
+  train=train[sapply(train,nrow)!=0]
+  ret=train
+}
+
+getLabel=function(features,indices,patients){
+  train=list()
+  label=list()
+  for(i in 1:length(patients)){
+    patient=patients[i]
+    train[[i]]=data.frame(V1=features[features$PATIENT==patient,indices])
+    label[[i]]=features$label[features$PATIENT==patient]
+    label[[i]]=label[[i]][!is.na(train[[i]]$V1)]
+  }
+  label=label[sapply(label,length)!=0]
+  ret=label
+}
+
+getLabelm=function(features,indices,ignoreNA = FALSE,patients){
+  train=list()
+  label=list()
+  for(i in 1:length(patients)){
+    patient=patients[i]
+    train[[i]]=data.frame(features[features$PATIENT==patient,indices])
+    label[[i]]=features$label[features$PATIENT==patient]
+    if(!ignoreNA) {
+      label[[i]]=label[[i]][-1*(unlist(sapply(train[[i]],function(x){which(is.na(x))})))]
+    }
+  }
+  label=label[sapply(label,length)!=0]
+  ret=label
+}
+
+readFeatures=function(filenames,pnames){
+  ret = do.call("rbind",lapply(1:length(filenames),function(i){
+    fn = filenames[i]
+    d = read.csv(fn)
+    d = d[,2:ncol(d)]
+    d$PATIENT = pnames[i]
+    d
+  }))
+}
+
+
+lopocvComplete=function(method,datafolds,yfolds,patients){
+  if(length(datafolds)!=length(yfolds)){
+    stop("datafolds and yfolds must have same length")
+  }
+
+
+  res = do.call("rbind",lapply(1:length(datafolds),function(i){
+    train=listToDf(datafolds[-i])
+    ytrain=unlist(yfolds[-i])
+    val=datafolds[[i]]
+    yval=yfolds[[i]]
+
+
+    p=method(train,ytrain,val)
+
+    dd = data.frame(predict=p,actual=yval,subject=patients[i])
+  }))
+
+  res
+}
+
+doClassification = function(features){
+
+  if(!"label" %in% colnames(features)){
+    setnames(features, old="groundtruth", new="label")
+  }
+
+  #only take annotated times
+  features=features[!is.na(features$label),]
+  #change labels to 0/1
+  l=rep(0,length(features$label))
+  l[features$label=="n1"|features$label=="n2"|features$label=="n3"|features$label=="n4"|
+      features$label=="rem"]=1
+  features$label=l
+
+  #take the temperature stuff out
+  features=features[,!(colnames(features) %in% c("tempskin_f","tempref_f"))]
+
+  ### get list of patients
+  patients=unique(features$PATIENT)
+  findices=c(3:(ncol(features)-2))
+
+  erg = do.call("rbind",lapply(1:length(findices),function(j){ #
+    print(j)
+    train=getTrain(features,findices[j],patients)
+    label=getLabel(features,findices[j],patients)
+
+    cole = lopocvComplete(function(xtrain,ytrain,xval){coleCV(xtrain,ytrain,xval)},train,label,patients)
+    sadeh =lopocvComplete(function(xtrain,ytrain,xval){sadehCV(xtrain,ytrain,xval)},train,label,patients)
+    lda = lopocvComplete(ldaCV,train,label,patients)
+    logreg = lopocvComplete(logregCV,train,label,patients)
+    hmm = lopocvComplete(hmmCV,train,label,patients)
+
+
+    dd=data.frame(cole=cole$predict,sadeh=sadeh$predict,lda=lda$predict,logreg=logreg$predict,
+                  hmm=hmm$predict,actual=cole$actual,subject=cole$subject,findex=findices[j],
+                  fname=colnames(features)[findices[j]],time=features$time_f[!is.na(features[,findices[j]])])
+  }))
+
+  erg
+}
+
+
+
+
+
+doCV=function(features,type="lopo"){
+  # read features and change label to 0/1
+  # change list of patients
+  #make label that is 0/1 (wake/sleep)
+  if(!"label" %in% colnames(features)){
+    setnames(features, old="groundtruth", new="label")
+  }
+
+
+  features=features[!is.na(features$label),]
+  l=rep(0,length(features$label))
+  l[features$label=="n1"|features$label=="n2"|features$label=="n3"|features$label=="n4"|
+      features$label=="rem"]=1
+  features$label=l
+
+  #take the temperature stuff out
+  features=features[,!(colnames(features) %in% c("tempskin_f","tempref_f"))]
+
+  ### get list of patients
+  patients=unique(features$PATIENT)
+  findices=c(3:(ncol(features)-2))
+
+  if(type=="lopo"){
+    erg = do.call("rbind",lapply(1:length(findices),function(j){
+      print(j)
+      train=getTrain(features,findices[j],patients=patients)
+      label=getLabel(features,findices[j],patients=patients)
+
+      cole = lopocv(function(xtrain,ytrain,xval){coleCV(xtrain,ytrain,xval)},train,label,F)[1:4]
+      sadeh = lopocv(function(xtrain,ytrain,xval){sadehCV(xtrain,ytrain,xval)},train,label,F)[1:4]
+      lda = lopocv(ldaCV,train,label,F)[1:4]
+      logreg = lopocv(logregCV,train,label,F)[1:4]
+      hmm = lopocv(hmmCV,train,label,F)[1:4]
+
+
+      dd=data.frame(cole,sadeh,lda,logreg,hmm,findex=findices[j],fname=colnames(features)[findices[j]])
+      ddm = melt(dd,id.vars=c("findex","fname"))
+      colnames(ddm) = c("findex","fname","algorithm","value")
+      ddm$measure = c("accuracy","sensitivity","specificity","youden")
+      ddm
+    }))
+  }else if(type=="kfold"){
+    #k-fold cv
+    k=10 # folds
+
+    erg = do.call("rbind",lapply(1:length(findices),function(j){
+      print(j)
+      train=data.frame(V1=features[,findices[j]])
+      label=features$label
+
+      cole = kfoldcv(function(xtrain,ytrain,xval){coleCV(xtrain,ytrain,xval)},train,label,k)[1:4]
+      sadeh = kfoldcv(function(xtrain,ytrain,xval){sadehCV(xtrain,ytrain,xval)},train,label,k)[1:4]
+      lda = kfoldcv(ldaCV,train,label,k)[1:4]
+      logreg = kfoldcv(logregCV,train,label,k)[1:4]
+      hmm = kfoldcv(hmmCV,train,label,k)[1:4]
+
+
+      dd=data.frame(cole,sadeh,lda,logreg,hmm,findex=findices[j],fname=colnames(features)[findices[j]])
+      ddm = melt(dd,id.vars=c("findex","fname"))
+      colnames(ddm) = c("findex","fname","algorithm","value")
+      ddm$measure = c("accuracy","sensitivity","specificity","youden")
+      ddm
+    }))
+  }else{
+    stop("type must be either kfold or lopo")
+  }
+
+  erg
+}
+
+

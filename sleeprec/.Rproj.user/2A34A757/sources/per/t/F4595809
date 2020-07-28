@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1549444977531.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2818128291",
+    "id" : "F4595809",
+    "lastKnownWriteTime" : 1549987911,
+    "last_content_update" : 1549987911,
+    "path" : "~/INSIDE-DEM/X20170810-SleepRecognitionPSG-SL/Code/012-Rpackage/sleeprec/R/generate_feature_csvs.R",
+    "project_path" : "R/generate_feature_csvs.R",
+    "properties" : {
+        "cursorPosition" : "13,0",
+        "scrollLine" : "0"
+    },
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

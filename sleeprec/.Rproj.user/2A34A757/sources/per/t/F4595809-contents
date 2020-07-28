@@ -1,0 +1,264 @@
+# library(dplyr)
+# library(ggplot2)
+# library(signal)
+# library(entropy)
+# library(e1071)
+# library(data.table)
+# library(fasttime)
+# library(plyr)
+# library(reshape2)
+# library(MASS)
+# library(mhsmm)
+# library(mvtnorm)
+# library(fasttime)
+checkSleepTransition = function(features, psg){
+  # checks if there were transitions sleep <-> awake at xx:xx:30
+  errs = c()
+
+  for(i in 1:nrow(features)){
+    current = features[i, c("time_f", "groundtruth")]
+    current.p30 = psg[psg$time_f == current$time_f+30, ]
+
+
+    if(current$groundtruth=="n1"|current$groundtruth=="n2"|current$groundtruth=="n3"|current$groundtruth=="n4"|
+       current$groundtruth=="rem") {
+      if(current.p30$groundtruth=="awake"|current.p30$groundtruth=="a"|current.p30$groundtruth=="motion") {
+        print(paste0("err at feature ", current$time_f, " ", current$groundtruth, " ", current.p30$time_f, " ", current.p30$groundtruth))
+        errs = c(errs, current$time_f)
+      }
+    } else {
+      if(current.p30$groundtruth=="n1"|current.p30$groundtruth=="n2"|current.p30$groundtruth=="n3"|current.p30$groundtruth=="n4"|
+         current.p30$groundtruth=="rem") {
+        print(paste0("err at feature ", current$time_f, " ", current$groundtruth, " ", current.p30$time_f, " ", current.p30$groundtruth))
+        errs = c(errs, current$time_f)
+      }
+    }
+
+  }
+  print(length(errs))
+}
+
+checkSleepTransitionPSG = function(psg){
+  # checks if there were transitions sleep <-> awake at xx:xx:30 in raw psg data
+  errs = c()
+
+  if(length(grep("[[:digit:]]{2}:[[:digit:]]{2}:30,000", psg[1,]$V1)) == 1){
+    psg = psg[-1,]
+  }
+  setnames(psg, old = c("V1", "V2"), new = c("time", "groundtruth"))
+  for(i in seq(1, nrow(psg)-1, 2)){
+    current = psg[i,]
+    current.p30 = psg[i+1,]
+
+
+    if(current$groundtruth==" N1"|current$groundtruth==" N2"|current$groundtruth==" N3"|current$groundtruth==" N4"|
+       current$groundtruth==" Rem") {
+      if(current.p30$groundtruth==" Wach"|current.p30$groundtruth==" A"|current.p30$groundtruth==" Bewegung") {
+        errs = c(errs, current$time)
+      }
+    } else {
+      if(current.p30$groundtruth==" N1"|current.p30$groundtruth==" N2"|current.p30$groundtruth==" N3"|current.p30$groundtruth==" N4"|
+         current.p30$groundtruth==" Rem") {
+        errs = c(errs, current$time)
+      }
+    }
+
+  }
+  ret=errs
+}
+
+getLabelDistribution = function(psg, wsize, startingtime){
+  # takes psg data and interval length, returns the distribution of labels
+  # expects psg data in 30seconds intervals, and renamed psg values
+  while(psg$time_f[1] != startingtime){
+    psg = psg[-1,]
+  }
+  for(i in seq(1, nrow(psg)-wsize/30, wsize/30)){
+    sublabels = psg[i:(i+wsize/30-1), ]
+    sublabels = sublabels[!is.na(sublabels$groundtruth), ]
+
+    t = table(factor(sublabels$groundtruth, levels = c("n1", "n2", "n3", "n4", "awake", "a", "motion", "rem")))
+    t = t / sum(t)
+
+    if(i==1) {
+      metaLabels = cbind(data.frame(sublabels[1, "time_f"]), as.data.frame.matrix(t(t)))
+    } else {
+      metaLabels = rbind(metaLabels, cbind(data.frame(sublabels[1, "time_f"]), as.data.frame.matrix(t(t))))
+    }
+  }
+  names(metaLabels)[1] = "time_f"
+  return(metaLabels)
+}
+
+getLabelDistributionNight = function(psg, start, end){
+  psg = psg[psg$time_f >= start,]
+  psg = psg[psg$time_f <= end,]
+  psg = psg[!is.na(psg$groundtruth),]
+
+  t = table(factor(psg$groundtruth, levels = c("n1", "n2", "n3", "n4", "awake", "a", "motion", "rem")))
+  t = t / sum(t)
+
+  metaLabels = cbind(data.frame(psg[1, "time_f"]), as.data.frame.matrix(t(t)))
+  names(metaLabels)[1] = "time_f"
+  return(metaLabels)
+}
+
+readRawData = function(patient, reduced, rows){
+  if(!reduced) {
+    data.filename = list.files(path = file.path(dpath,"001-raw",patient), pattern = "*derived.csv$")
+  } else{
+    data.filename = list.files(path = file.path(dpath,"001-raw",patient), pattern = "*reduced_data.csv$")
+  }
+
+  if(is.na(rows)) {
+    data = fread(paste(file.path(dpath,"/001-raw", patient, data.filename)), stringsAsFactors = F)
+  } else {
+    data = fread(paste(file.path(dpath,"001-raw", patient, data.filename)), stringsAsFactors = F, nrows = rows)
+  }
+  return(data)
+}
+
+readPSG = function(fn, data){
+  # reads psg data and coverts time to unix time
+
+
+  psg = read.csv2(fn,
+                  header=F, skip = 6)
+  psg$V2 = revalue(psg$V2, c(" N4"="n4", " N3"="n3", " N2"="n2", " N1"="n1", " A"="a", " Wach"="awake", " Rem"="rem",
+                             " Bewegung"="motion"))
+
+  # split psg because there are two dates
+  psg1 = data.frame()
+  for(row in 1:nrow(psg)) {
+    if(psg[row, "V1"] != "00:00:00,000"){
+      psg1 = rbind(psg1, psg[row,])
+    } else {
+      break
+    }
+  }
+  psg1$V1 = paste(as.Date(as.POSIXct(data[1,"DateTime"]$DateTime, tz="CEST")), psg1$V1)
+  psg2 = psg[(nrow(psg1)+1):nrow(psg),]
+  psg2$V1 = paste(as.Date(as.POSIXct(data[nrow(data),"DateTime"]$DateTime, tz="CEST")), psg2$V1)
+  # merge them again
+  psg = rbind(psg1, psg2)
+  return(psg)
+}
+
+calculateTimeOffset = function(data, psg, edfevents){
+  ### is the button press in edf always at xx:xx:xx.00000 ? if not this could throw an error ---- round it?
+  dd = data[!is.na(data$ALGO_DATA_EVENT),]
+  buttonpress.data = dd[dd$ALGO_DATA_EVENT == 1,]$DateTime
+  if(length(buttonpress.data)==0){
+    stop("sync event not in sensor data")
+  }
+  buttonpress.edf = edfevents[edfevents$annotation == "Patientenmarker", "onset"]
+  offset = round(as.numeric(fastPOSIXct(buttonpress.edf,tz="CEST")) - buttonpress.data, digits = 0)
+  if(length(offset)>1){
+    print("More than one buttonpress event in data, i.e. more than one possible sync offset")
+    print(offset)
+    print("Choosing the (absolute) minimal offset")
+    offset=offset[which.min(abs(offset))]
+  }
+  print(paste0(offset, " seconds time offset of data"))
+  return(offset)
+}
+
+generateFeatures = function(greydata,psgevents,psgannotations, wsize = 60, labelDistribution = F, gyro.version = "v1", rows=NA, ignoretemp = F) {
+
+  data = greydata
+  edfevents = psgevents
+  psg = psgannotations
+
+  # datetime to unix time
+  data$DateTime = as.numeric(fastPOSIXct(data$DateTime,tz="CEST"))
+  psg$V1 =  as.numeric(fastPOSIXct(psg$V1,tz="CEST"))
+
+  # time offset
+  offset = calculateTimeOffset(data, psg, edfevents)
+  data$DateTime = data$DateTime + offset
+
+  #### throw away data, so beginning is at xx:xx:00 and later than beginning of psg labels
+  data = data[data$DateTime > psg$V1[1], ]
+  delfront = 0
+  for(row in 1:nrow(data)){
+    if(data[row, "DateTime"] %% 60 == 0){
+      break
+    } else {
+      delfront = row
+    }
+  }
+  data = data[-(1:delfront),]
+  offFullTime = data[1, "DateTime"]$DateTime %% wsize
+
+  #### set ending of data to a full interval length
+  delend = nrow(data)
+  for(row in seq(nrow(data), 1, -1)){
+    if(data[row, "DateTime"]$DateTime %% wsize == offFullTime){
+      break
+    } else {
+      delend = row
+    }
+  }
+  data = data[-(nrow(data):delend),]
+
+  #### set ending to xx:xx:59
+  delend = nrow(data)
+  for(row in seq(nrow(data), 1, -1)){
+    if(data[row, "DateTime"]$DateTime == data[nrow(data), "DateTime"]$DateTime - 1){
+      break
+    } else {
+      delend = row
+    }
+  }
+  data = data[-(nrow(data):delend),]
+
+  print(paste0(data[nrow(data),"DateTime"]$DateTime  - data[1,"DateTime"]$DateTime, " seconds of data"))
+  print(paste0(data[1,"DateTime"]$DateTime, " beginning of data"))
+  print(paste0(psg[1,"V1"], " beginning of psg data"))
+
+  #### create accel data frame
+  accel = data[,c("DateTime","ALGO_DATA_ACCELEROMETER_WRIST_X","ALGO_DATA_ACCELEROMETER_WRIST_Y","ALGO_DATA_ACCELEROMETER_WRIST_Z")]
+  # filter NAs
+  accel = accel[!is.na(accel$ALGO_DATA_ACCELEROMETER_WRIST_X), ]
+
+  #### create gyro data frame
+  if(gyro.version  == "v1") {
+    gyro = data[, c("DateTime", "ALGO_DATA_GYRO_WRIST_X", "ALGO_DATA_GYRO_WRIST_Y", "ALGO_DATA_GYRO_WRIST_Z")]
+  }
+  if(gyro.version == "v2"){
+    gyro = data[, c("DateTime", "ALGO_DATA_GYRO_V2_WRIST_X", "ALGO_DATA_GYRO_V2_WRIST_Y", "ALGO_DATA_GYRO_V2_WRIST_Z")]
+    setnames(gyro, old=c("ALGO_DATA_GYRO_V2_WRIST_X", "ALGO_DATA_GYRO_V2_WRIST_Y", "ALGO_DATA_GYRO_V2_WRIST_Z"), new=c("ALGO_DATA_GYRO_WRIST_X", "ALGO_DATA_GYRO_WRIST_Y", "ALGO_DATA_GYRO_WRIST_Z"))
+  }
+  gyro = gyro[!is.na(gyro$ALGO_DATA_GYRO_WRIST_X), ]
+
+  #### create temperatur data frame
+  temp = data[, c("DateTime", "ALGO_DATA_TEMPERATURE_WRIST_SKIN", "ALGO_DATA_TEMPERATURE_WRIST_REFERENCE")]
+  temp = temp[!is.na(temp$ALGO_DATA_TEMPERATURE_WRIST_SKIN) | !is.na(temp$ALGO_DATA_TEMPERATURE_WRIST_REFERENCE)]
+
+
+  print(paste0(accel[nrow(accel), "DateTime"]$DateTime, " ending time of accelerometer data"))
+  print(paste0(temp[nrow(temp), "DateTime"]$DateTime, " ending time of temp data"))
+
+
+  #### calculate features
+  print("calculate features...")
+  features = getFeatures(temp, accel, gyro, wsize, ignoretemp)
+
+  #### merge features with ground truth
+  setnames(psg, old = c("V1", "V2"), new = c("time_f", "groundtruth"))
+  if(labelDistribution) {
+    # use merge function to fing starting time
+    tempdf = merge(features, psg, by = "time_f")
+    psg = getLabelDistribution(psg, wsize, startingtime = tempdf$time_f[1])
+  }
+  features = merge(features, psg, by = "time_f")
+
+
+  ### write csv
+  #print("write feature csv...")
+  #dir.create(file.path(dpath,"004-features", patient), showWarnings = FALSE)
+  #write.csv(features, file.path(dpath,"004-features", patient, paste0("features_ma", wsize, "s.csv")))
+
+  return(features)
+}
+

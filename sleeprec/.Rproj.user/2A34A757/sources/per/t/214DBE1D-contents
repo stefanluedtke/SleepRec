@@ -1,0 +1,28 @@
+Package: sleeprec
+Type: Package
+Title: Sleep Recognition from Actigraphy Data
+Version: 0.1.0
+Author: Stefan Lüdtke
+Maintainer: Stefan Lüdtke <stefan.luedtke2@uni-rostock.de>
+Description: Provides functions for feature extraction, training of ML algorithms,
+    validation of those algorithms.
+License: MIT License
+Encoding: UTF-8
+LazyData: false
+Depends:
+    dplyr,
+    ggplot2,
+    signal,
+    entropy,
+    e1071,
+    data.table,
+    fasttime,
+    plyr,
+    reshape2,
+    MASS,
+    mhsmm,
+    mvtnorm
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr

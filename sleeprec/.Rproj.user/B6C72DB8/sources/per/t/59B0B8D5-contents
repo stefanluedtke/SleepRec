@@ -1,0 +1,92 @@
+---
+title: "Using the SleepRec package"
+author: "Stefan Lüdtke"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+This package provides some algorithms for actigraphic sleep recognition. Specifically, you can either apply pre-trained algorithms (that were trained by supervised training, using data from 20 patients for which PSG scorings are available) or train and evaluate the algorithms with your own data, using k-fold or leave-one-patient-out cross validation. 
+
+
+## Required Data
+This package assumes that the data is present as a data frame with the following columns:
+
+* `PATIENT`: The ID of the patient each sample belongs to.
+* One column for each feature that has been computed from the actigraphy data. 
+* `groundtruth`: Optional column that is necessary for algorithm training. Either 0 (awake) or 1 (sleeping).
+
+The pre-trained algorithms assume a window size of one minute, i.e. the data frame contains one sample per minute. The package contains some sample data:
+
+```{r,eval=FALSE}
+library(sleeprec)
+features
+```
+
+## Applying Pre-trained Classifiers
+
+The package contains pre-trained classifiers, for each combination of feature and classification algorithm. Available features are:
+
+* amean, gmean: Mean of absolute acceleration (gyroscope) magnitude 
+* avar, gvar: Variance of acceleration (gyroscope) magnitude
+* askew, gskew: Skewness of acceleration (gyroscope) magnitude in five-second windows, mean of those values
+* akurt, gkurt: Kurtosis of acceleration (gyroscope) magnitude in five-second windows, mean of those values
+* aq10, gq10: 10-percentile of absolute acceleration (gyroscope) magnitude
+* aq25, gq25: 25-percentile of absolute acceleration (gyroscope) magnitude
+* aq50, gq50: median of absolute acceleration (gyroscope) magnitude
+* aq75, gq75: 75-percentile of absolute acceleration (gyroscope) magnitude
+* aq90, gq90: 90-percentile of absolute acceleration (gyroscope) magnitude
+* entropy, gentropy: Shannon entropy of acceleration (gyroscope) magnitude
+* energy, genergy: Energy of acceleration (gyroscope) magnitude
+* meanfreq, gmeanfreq: Mean frequency of acceleration (gyroscope) magnitude
+* tc, gtc: Threshold crossing rate of absolute acceleration (gyroscope) magnitude, using thresholds 0.1 g and 1.8°, respectively
+* nrmovements, gnrmovements: relative number of values of absolute acceleration (gyroscope) magnitude that are above the threshold 0.1 g or 1.8°
+* amsmooth, gmsmooth: Lowpass-filered
+* tcsmooth, gtcsmooth: Lowpass-filtered tc (gtc) 
+* nrsmooth, gnrsmooth: Lowpass-filtered nrmovements (gnrmovements)
+* bh & Angle between acceleration vector at beginning and end of window
+* nrturns: Number of distinct movements
+* islying: Whether or not the subject is lying down
+
+Availabe classifiers are:
+
+* lda: Linear discriminant analysis
+* logreg: Logistic regression
+* cole: Cole-Kripke algorithm
+* sadeh: Sadeh's algorithm
+* hmm: Hidden Markov Model
+
+The trained classifiers are stored in `sleeprec-data/algorithms.rds`. They can be loaded and used to classify new data as follows:
+
+```{r,eval=FALSE}
+library(sleeprec)
+feature = "amean_f"
+alg = "hmm"
+
+pretrainedClassification = applyPretrained(alg,feature,features)
+```
+
+
+## Training and evaluation
+
+The function `doClassification` trains the models and performs classification in a leave-one-person-out cross validation. That is, the model is trained on all data except patient i, that trained model is then used for classifying the data of patient i, and this is done for each i. 
+The ouptut of this function is for each subject, each window and each feature (all classifiers take univariate features), the classification of that window by each classifier. 
+The class is either 0 (awake) or 1 (sleeping). 
+This function returns for each feature, each algorithm and each performance measure the value of that measure. 
+```{r,eval=FALSE}
+library(sleeprec)
+classification = doClassification(features)
+result = doCV(features)
+```
+
+

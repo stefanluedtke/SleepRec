@@ -1,0 +1,278 @@
+source("~/projects/X20170810-SleepRecognitionPSG-SL/Code/008-cross-validation/cv.R")
+
+
+
+
+#load features of first 13 subjects
+setwd("/mnt/sleeprec")
+features = readFeatures(60,n=13)
+#saveAllTrainedAlgs(features)
+
+saveAllTrainedAlgs = function(features){
+
+  if(!"label" %in% colnames(features)){
+    setnames(features, old="groundtruth", new="label")
+  }
+
+  #only take annotated times
+  features=features[!is.na(features$label),]
+  #change labels to 0/1
+  l=rep(0,length(features$label))
+  l[features$label=="n1"|features$label=="n2"|features$label=="n3"|features$label=="n4"|
+      features$label=="rem"]=1
+  features$label=l
+
+  #take the temperature stuff out
+  features=features[,!(colnames(features) %in% c("tempskin_f","tempref_f"))]
+
+  ### get list of patients
+  patients=unique(features$PATIENT)
+  findices=c(3:(ncol(features)-2))
+
+  #get all models, and save in list indexed by feature and alg
+  erg = lapply(1:length(findices),function(j){ #
+    print(j)
+    train=getTrain(features,findices[j],patients)
+    label=getLabel(features,findices[j],patients)
+
+    train=listToDf(train)
+    label=unlist(label)
+
+    logreg = logregm(train,label)
+    sadeh = sadehm(train,label)
+    lda = ldam(train,label)
+    cole = colem(train,label)
+    hmm = hmmm(train,label)
+
+
+    ll = list(logreg,sadeh,lda,cole,hmm)
+    names(ll) = c("logreg","sadeh","lda","cole","hmm")
+    ll
+  })
+  names(erg) = colnames(features)[findices]
+
+  #erg
+
+  #TODO save all models to file
+  saveRDS(erg, file = "~/projects/X20170810-SleepRecognitionPSG-SL/Code/012-Rpackage/sleeprec-data/algorithms.rds")
+}
+
+
+
+
+#returns a model
+logregm=function(xtrain,ytrain,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+  re=resampling(xtrain,ytrain)
+  xtrain=re[[1]]
+  ytrain=re[[2]]
+
+  model=glm(ytrain~.,data=xtrain,family="binomial")
+
+}
+
+
+
+
+ldam=function(xtrain,ytrain,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=data.frame(b[[1]])
+    xval=data.frame(b[[2]])
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+
+  re=resampling(xtrain,ytrain)
+  xtrain=re[[1]]
+  ytrain=re[[2]]
+
+  model=lda(ytrain~.,data=data.frame(data.frame(xtrain)))
+}
+
+hmmm=function(xtrain,ytrain,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+  }
+  supervisedHMMmult=function(features,label){
+    require(mhsmm)
+    J <- 2
+    initial <- rep(1/J, J)
+
+    mu=list()
+    sigma=list()
+    for(i in c(1,0)){
+      m=c()
+      V=diag(ncol(features))
+      for(j in 1:ncol(features)){
+        f=features[,j][label==i]
+        m=c(m,mean(f))
+        V[j,j]=var(f)
+      }
+      mu[[length(mu)+1]] <- m
+      sigma[[length(sigma)+1]] <- V
+    }
+
+    sigma=list()
+    for(i in c(1,0)){
+      V=cov(features[label==i,])
+      sigma[[length(sigma)+1]] <- V
+    }
+
+
+    b <- list(mu = mu, sigma = sigma)
+
+    changes1=sapply(which(label==1),function(i){
+      ret=(label[i+1]==0)
+    })
+    relC1=sum(changes1,na.rm=T)/sum(label==1)
+
+    changes0=sapply(which(label==0),function(i){
+      ret=(label[i+1]==1)
+    })
+    relC0=sum(changes1,na.rm=T)/sum(label==0)
+
+    P <- matrix(c(1-relC1, relC0,relC1, 1-relC0), nrow = 2)
+
+    model <- hmmspec(init = initial, trans = P, parms.emis = b,dens.emis = dmvnorm.hsmm)
+
+  }
+
+
+  supervisedHMMuni=function(features,label){
+    require(mhsmm)
+    J <- 2
+    initial <- rep(1/J, J)
+
+    b <- list(mu = c(mean(features[label==1,1]),mean(features[label==0,1])), sigma =c(var(features[label==1,1]),var(features[label==0,1])))
+    changes1=sapply(which(label==1),function(i){
+      ret=(label[i+1]==0)
+    })
+    relC1=sum(changes1,na.rm=T)/sum(label==1)
+
+    changes0=sapply(which(label==0),function(i){
+      ret=(label[i+1]==1)
+    })
+    relC0=sum(changes1,na.rm=T)/sum(label==0)
+
+    P <- matrix(c(1-relC1, relC0,relC1, 1-relC0), nrow = 2)
+
+    model <- hmmspec(init = initial, trans = P, parms.emis = b,dens.emis = dnorm.hsmm)
+
+  }
+  xtrainj=data.frame(apply(xtrain,2,jitter))
+  xtrainj=abs(xtrainj)
+
+
+  #--------------------------log norm
+  #xvalj=data.frame(apply(xval,2,jitter))
+  #xvalj=abs(xvalj)
+
+  xtrainj=log(xtrainj)
+  #xvalj=log(xvalj)
+  #--------------------------
+
+
+  if(ncol(xtrainj)==1){
+    model=supervisedHMMuni(xtrainj,ytrain)
+    #traindata=list(x=xvalj[,1],N=length(xvalj[,1]))
+  }else{
+    model=supervisedHMMmult(xtrainj,ytrain)
+    #traindata=list(x=xvalj,N=length(xvalj[,1]))
+  }
+
+  model
+
+}
+
+colem=function(xtrain,ytrain,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+  getFeatureMatrix = function(dat,BEFORE,AFTER){
+    gesmat=matrix(nrow=length(dat[,1]))
+    for(j in 1:length(dat)){
+      el=dat[,j]
+      featmat=matrix(nrow=length(el),ncol=(BEFORE+AFTER+1))
+      for(i in (BEFORE+1):(length(el)-(AFTER+1))){
+        featmat[i,]=el[(i-BEFORE):(i+AFTER)]
+      }
+      gesmat=cbind(gesmat,featmat)
+    }
+
+    return(data.frame(gesmat[,-1]))
+  }
+
+  xtrainm=getFeatureMatrix(xtrain,4,2)
+  #xvalm=getFeatureMatrix(xval,4,2)
+  re=resampling(xtrainm,ytrain)
+  xtrainm=re[[1]]
+  ytrain=re[[2]]
+  model=lm(ytrain~.,xtrainm)
+
+}
+
+
+sadehm=function(xtrain,ytrain,k=0){
+  if(k>0){
+    b=pca(xtrain,xval,k)
+    xtrain=b[[1]]
+    xval=b[[2]]
+    if(ncol(xval)==1){
+      colnames(xval)[1]="V1"
+    }
+  }
+  xtosadeh=function(xtrain){
+    sadeh2_f=rep(0,length(xtrain))
+    sadeh2_f[6:length(xtrain)]=sapply(6:length(xtrain),function(i){
+      ret=sd(xtrain[(i-5):(i-1)])
+    })
+    sadeh3_f=rep(0,length(xtrain))
+    sadeh3_f[1:(length(xtrain)-9)]=sapply(1:(length(xtrain)-9),function(i){
+      ret=sd(xtrain[(i+1):(i+9)])
+    })
+    sadeh4_f=rep(0,length(xtrain))
+    sadeh4_f[1:(length(xtrain)-2)]=sapply(1:(length(xtrain)-2),function(i){
+      ret=min(xtrain[(i+1):(i+2)])
+    })
+    sadeh5_f=rep(0,length(xtrain))
+    sadeh5_f[3:(length(xtrain))]=sapply(3:(length(xtrain)),function(i){
+      ret=sd(xtrain[(i-2):(i-1)])
+    })
+    features=data.frame(xtrain,sadeh2_f,sadeh3_f,sadeh4_f,sadeh5_f)
+  }
+  xt=xtrain[,1]
+  #xv=xval[,1]
+  xtf=xtosadeh(xt)
+  #xvf=xtosadeh(xv)
+  if(ncol(xtrain)>1){
+    for(i in 2:ncol(xtrain)){
+      xt=xtrain[,i]
+      #xv=xval[,i]
+      xtf=cbind(xtf,xtosadeh(xt))
+      #xvf=cbind(xvf,xtosadeh(xv))
+    }
+  }
+  re=resampling(xtf,ytrain)
+  xtf=re[[1]]
+  ytrain=re[[2]]
+
+  model=lm(ytrain~.,data.frame(xtf))
+
+
+}

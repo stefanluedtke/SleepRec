@@ -1,0 +1,131 @@
+
+
+testthis = function(){
+
+  setwd("~/projects/X20170810-SleepRecognitionPSG-SL/Code/012-Rpackage/")
+  models = readRDS("sleeprec-data/algorithms.rds")
+  feature = "amean_f"
+
+  fns = c("sleeprec-data/features.patient1.csv","sleeprec-data/features.patient2.csv")
+  names = c("patient1","patient2")
+  data = readFeatures(fns,names)
+
+  alg = "hmm"
+
+  res = applyPretrained(alg,feature,data)
+}
+
+applyPretrained = function(alg,feature,data){
+  invisible(models)
+  #get correct model
+  ll = models[[feature]]
+  names(ll) = c("logreg","sadeh","lda","cole","hmm")
+  model = ll[[alg]]
+
+  #get correct data
+  xval = data.frame(V1=data[,feature])
+
+  #depending on alg, application is different
+  if(alg == "lda"){
+    res = applyLda(model,xval)
+  }else if(alg == "logreg"){
+    res = applyLogreg(model,xval)
+  }else if(alg == "cole"){
+    res = applyCole(model,xval)
+  }else if(alg == "sadeh"){
+    res = applySadeh(model,xval)
+  }else if(alg == "hmm"){
+    res = applyHmm(model,xval)
+  }else{
+    error(paste("Unknown algorithm:",alg))
+  }
+
+  res
+}
+
+
+applyLda = function(model,xval){
+  yval=predict(model,data.frame(V1=xval),type="response")
+  p=as.numeric(levels(yval$class))[yval$class]
+  ret=p
+}
+
+
+applyHmm = function(model,xval){
+  xvalj=data.frame(apply(xval,2,jitter))
+  xvalj=abs(xvalj)
+
+  xvalj=log(xvalj)
+
+  traindata=list(x=xvalj[,1],N=length(xvalj[,1]))
+
+  yfit=predict(model,traindata)
+
+  p=(yfit$s-2)*(-1)
+
+}
+
+
+applyCole = function(model,xval){
+  getFeatureMatrix = function(dat,BEFORE,AFTER){
+    gesmat=matrix(nrow=length(dat[,1]))
+    for(j in 1:length(dat)){
+      el=dat[,j]
+      featmat=matrix(nrow=length(el),ncol=(BEFORE+AFTER+1))
+      for(i in (BEFORE+1):(length(el)-(AFTER+1))){
+        featmat[i,]=el[(i-BEFORE):(i+AFTER)]
+      }
+      gesmat=cbind(gesmat,featmat)
+    }
+
+    return(data.frame(gesmat[,-1]))
+  }
+
+  xvalm=getFeatureMatrix(xval,4,2)
+  yfit=predict(model,data.frame(V1=xvalm))
+  p=yfit
+  p[yfit>=0.5]=1
+  p[yfit<0.5]=0
+  p=p
+}
+
+
+applyLogreg = function(model,xval){
+  yval=predict(model,data.frame(V1=xval),type="response")
+  p=yval
+  p[yval>=0.5]=1
+  p[yval<0.5]=0
+  ret=p
+}
+
+
+applySadeh = function(model,xval){
+  xtosadeh=function(xtrain){
+    sadeh2_f=rep(0,length(xtrain))
+    sadeh2_f[6:length(xtrain)]=sapply(6:length(xtrain),function(i){
+      ret=sd(xtrain[(i-5):(i-1)])
+    })
+    sadeh3_f=rep(0,length(xtrain))
+    sadeh3_f[1:(length(xtrain)-9)]=sapply(1:(length(xtrain)-9),function(i){
+      ret=sd(xtrain[(i+1):(i+9)])
+    })
+    sadeh4_f=rep(0,length(xtrain))
+    sadeh4_f[1:(length(xtrain)-2)]=sapply(1:(length(xtrain)-2),function(i){
+      ret=min(xtrain[(i+1):(i+2)])
+    })
+    sadeh5_f=rep(0,length(xtrain))
+    sadeh5_f[3:(length(xtrain))]=sapply(3:(length(xtrain)),function(i){
+      ret=sd(xtrain[(i-2):(i-1)])
+    })
+    features=data.frame(xtrain,sadeh2_f,sadeh3_f,sadeh4_f,sadeh5_f)
+  }
+
+  xv=xval[,1]
+  xvf=xtosadeh(xv)
+
+  yfit=predict(model,data.frame(V1=xvf))
+  p=yfit
+  p[yfit>=0.5]=1
+  p[yfit<0.5]=0
+  ret=p
+}

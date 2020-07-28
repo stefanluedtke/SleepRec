@@ -1,0 +1,22 @@
+library(sleeprec)
+
+
+#show the documentation for the package
+vignette("sleeprec-tutorial")
+
+# load some pre-computed feature files
+invisible(features)
+head(features)
+
+# use a pre-trained algorithm for classification. For this, we need to specify
+#the algorithm (c("logreg","sadeh","lda","cole","hmm")) and feature (see colnames(features))
+#for example:
+feature = "amean_f"
+alg = "hmm"
+
+pretrainedClassification = applyPretrained(alg,feature,features)
+
+
+#train and test using leave-one-subject-out cv (either getting the actual classification back, or the cross validation result)
+classification = doClassification(features)
+result = doCV(features)
