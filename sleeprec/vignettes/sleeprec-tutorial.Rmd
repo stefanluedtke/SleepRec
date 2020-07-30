@@ -67,12 +67,15 @@ feature = "amean_f"
 pretrainedClassification = applyPretrained(feature,features)
 ```
 
+This function returns vector that contains a classification for each row in the features data frame, where 0=awake and 1=sleeping.
 
 ## Training and evaluation
 
 The function `doClassification` trains the models and performs classification in a leave-one-person-out cross validation. That is, the model is trained on all data except patient i, that trained model is then used for classifying the data of patient i, and this is done for each i. 
 The ouptut of this function is for each subject, each window and each feature (all classifiers take univariate features), the classification of that window by each classifier. 
 The class is either 0 (awake) or 1 (sleeping). 
+
+Alternatively, it is possible to directly compute evaluation measures for the cross validation via the function `doCV`.
 This function returns for each feature, each algorithm and each performance measure the value of that measure. 
 ```{r,eval=FALSE}
 library(sleeprec)
